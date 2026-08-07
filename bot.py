@@ -9,37 +9,32 @@ import re
 # ==================== CONFIGURACIÓN ====================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+
 PREMIUM_BANDAI_URLS = [
     "https://p-bandai.com/us/brand/onepiececardgame",
     "https://p-bandai.com/us/series/onepiece-series?_f_series=03-002&offset=0&limit=20&sortType=NewArrival&_f_productStatuses=Waiting,On"
 ]
+
 PRODUCTS_FILE = "productos_anteriores.json"
 
 # ==================== FUNCIONES ====================
 
 def obtener_productos():
-    """
-    Extrae los productos One Piece TCG de Premium Bandai USA
-    """
+    """Extrae los productos One Piece TCG de Premium Bandai USA"""
     import cloudscraper
     
     try:
         scraper = cloudscraper.create_scraper()
-        
         productos = []
         
-        # Recorrer ambas URLs
         for url in PREMIUM_BANDAI_URLS:
             try:
                 response = scraper.get(url, timeout=15)
                 response.encoding = 'utf-8'
-                
                 soup = BeautifulSoup(response.content, 'html.parser')
                 
-                # Buscar todos los links de productos
                 producto_links = soup.find_all('a', href=lambda x: x and '/item/' in str(x))
-                
-                print(f"DEBUG: Encontrados {len(producto_links)} enlaces de productos en {url}")
+                print(f"DEBUG: Encontrados {len(producto_links)} enlaces en {url.split('?')[0]}")
                 
                 for link in producto_links:
                     try:
@@ -50,11 +45,9 @@ def obtener_productos():
                         texto_completo = link.get_text(strip=True)
                         nombre = texto_completo[:100] if texto_completo else "Sin nombre"
                         
-                        # Filtrar SOLO productos que contengan "CARD GAME" o "TCG"
                         if not nombre or len(nombre) < 5:
                             continue
                         if 'CARD GAME' not in nombre.upper() and 'TCG' not in nombre.upper():
-                            print(f"Ignorando: {nombre}")
                             continue
                         
                         precio = "N/A"
@@ -79,20 +72,25 @@ def obtener_productos():
                             'timestamp': datetime.now().isoformat()
                         }
                         
-                        # Evitar duplicados
                         if not any(p['nombre'] == producto['nombre'] for p in productos):
                             productos.append(producto)
                         
                     except Exception as e:
-                        print(f"Error procesando producto: {e}")
                         continue
             
             except Exception as e:
-                print(f"Error en URL {url}: {e}")
-# ====================
+                print(f"Error en URL: {e}")
+                continue
+        
+        print(f"✅ Total productos: {len(productos)}")
+        return productos
+    
+    except Exception as e:
+        print(f"Error obteniendo productos: {e}")
+        return []
 
 def cargar_productos_anteriores():
-    """Carga productos del monitoreo anterior"""
+    """Carga productos anteriores"""
     if os.path.exists(PRODUCTS_FILE):
         try:
             with open(PRODUCTS_FILE, 'r', encoding='utf-8') as f:
@@ -101,25 +99,17 @@ def cargar_productos_anteriores():
             return []
     return []
 
-# ====================
-
 def guardar_productos(productos):
-    """Guarda productos para próxima comparación"""
+    """Guarda productos"""
     try:
         with open(PRODUCTS_FILE, 'w', encoding='utf-8') as f:
             json.dump(productos, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"Error guardando productos: {e}")
-
-# ====================
+        print(f"Error guardando: {e}")
 
 def detectar_cambios(productos_nuevos, productos_anteriores):
-    """Detecta nuevos productos y preventas"""
-    cambios = {
-        'nuevos': [],
-        'preventas_nuevas': []
-    }
-    
+    """Detecta cambios"""
+    cambios = {'nuevos': [], 'preventas_nuevas': []}
     nombres_anteriores = {p['nombre'] for p in productos_anteriores}
     
     for producto in productos_nuevos:
@@ -127,78 +117,53 @@ def detectar_cambios(productos_nuevos, productos_anteriores):
             cambios['nuevos'].append(producto)
         
         if producto['es_preventa']:
-            previo = next((p for p in productos_anteriores 
-                          if p['nombre'] == producto['nombre']), None)
+            previo = next((p for p in productos_anteriores if p['nombre'] == producto['nombre']), None)
             if not previo or not previo.get('es_preventa', False):
                 cambios['preventas_nuevas'].append(producto)
     
     return cambios
-    
-# ====================
 
 def enviar_telegram(mensaje):
-    """Envía mensaje a Telegram usando requests"""
+    """Envía a Telegram"""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        data = {
-            'chat_id': int(CHAT_ID),
-            'text': mensaje,
-            'parse_mode': 'HTML'
-        }
+        data = {'chat_id': int(CHAT_ID), 'text': mensaje, 'parse_mode': 'HTML'}
         response = requests.post(url, data=data, timeout=10)
-        
         if response.status_code == 200:
-            print("✅ Mensaje enviado a Telegram")
+            print("✅ Mensaje enviado")
             return True
-        else:
-            print(f"❌ Error Telegram: {response.text}")
-            return False
+        return False
     except Exception as e:
-        print(f"Error enviando Telegram: {e}")
+        print(f"Error Telegram: {e}")
         return False
 
-# ====================
-
 def formatear_alerta(cambios):
-    """Crea mensaje para Telegram"""
+    """Formatea alerta"""
     if not cambios['nuevos'] and not cambios['preventas_nuevas']:
         return None
     
-    mensaje = "🎴 <b>ALERTA ONE PIECE TCG - Premium Bandai USA</b>\n\n"
+    mensaje = "🎴 <b>ALERTA ONE PIECE TCG</b>\n\n"
     
     if cambios['nuevos']:
-        mensaje += "🆕 <b>NUEVOS PRODUCTOS:</b>\n"
+        mensaje += "🆕 <b>NUEVOS:</b>\n"
         for p in cambios['nuevos'][:5]:
-            mensaje += f"• <b>{p['nombre']}</b>\n"
-            mensaje += f"  💰 {p['precio']}\n"
-            if p['url']:
-                mensaje += f"  🔗 <a href=\"{p['url']}\">Ver</a>\n"
-            mensaje += "\n"
+            mensaje += f"• {p['nombre']}\n💰 {p['precio']}\n"
     
     if cambios['preventas_nuevas']:
-        mensaje += "⏰ <b>NUEVAS PREVENTAS:</b>\n"
+        mensaje += "\n⏰ <b>PREVENTAS:</b>\n"
         for p in cambios['preventas_nuevas'][:5]:
-            mensaje += f"• <b>{p['nombre']}</b>\n"
-            mensaje += f"  💰 {p['precio']}\n"
-            if p['url']:
-                mensaje += f"  🔗 <a href=\"{p['url']}\">Ver</a>\n"
-            mensaje += "\n"
+            mensaje += f"• {p['nombre']}\n💰 {p['precio']}\n"
     
-    mensaje += f"⏰ Última revisión: {datetime.now().strftime('%H:%M:%S')}"
     return mensaje
 
-# ====================
-
 def ejecutar_ciclo():
-    """Ejecuta UN ciclo de monitoreo"""
-    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Iniciando monitoreo...")
+    """Ejecuta ciclo"""
+    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Monitoreo...")
     
     productos_nuevos = obtener_productos()
     if not productos_nuevos:
-        print("❌ No se pudieron obtener productos")
+        print("❌ Sin productos")
         return
-    
-    print(f"✅ Se obtuvieron {len(productos_nuevos)} productos")
     
     productos_anteriores = cargar_productos_anteriores()
     cambios = detectar_cambios(productos_nuevos, productos_anteriores)
@@ -206,10 +171,9 @@ def ejecutar_ciclo():
     if cambios['nuevos'] or cambios['preventas_nuevas']:
         mensaje = formatear_alerta(cambios)
         if mensaje:
-            print(f"📬 Enviando alertas...")
             enviar_telegram(mensaje)
     else:
-        print("ℹ️ Sin cambios detectados")
+        print("ℹ️ Sin cambios")
     
     guardar_productos(productos_nuevos)
 
@@ -217,8 +181,7 @@ def ejecutar_ciclo():
 
 if __name__ == "__main__":
     print("🤖 BOT ONE PIECE TCG INICIADO")
-    print("URL: Premium Bandai USA")
-    print(f"Ejecutando cada 30 minutos\n")
+    print("Ejecutando cada 30 minutos\n")
     
     while True:
         try:
@@ -226,5 +189,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ Error: {e}")
         
-        print("⏳ Esperando 30 minutos...")
+        print("⏳ Esperando 30 min...")
         time.sleep(1800)
