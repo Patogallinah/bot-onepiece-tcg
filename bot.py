@@ -8,9 +8,9 @@ from telegram import Bot
 from telegram.error import TelegramError
 
 # ==================== CONFIGURACIÓN ====================
-TELEGRAM_TOKEN = "890123456789:ABCDEfghijklmnOPqrstUVwxyz"  # TU TOKEN
-CHAT_ID = "5422921883"  # TU CHAT ID
-PREMIUM_BANDAI_URL = "https://p-bandai.com/b-boys-log/search.html?search_word=one%20piece%20card%20game"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+PREMIUM_BANDAI_URL = "https://p-bandai.com/us/brand/onepiececardgame"
 
 PRODUCTS_FILE = "productos_anteriores.json"
 
@@ -18,45 +18,72 @@ PRODUCTS_FILE = "productos_anteriores.json"
 
 def obtener_productos():
     """
-    Extrae los productos One Piece TCG de Premium Bandai
+    Extrae los productos One Piece TCG de Premium Bandai USA
     """
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
-        response = requests.get(PREMIUM_BANDAI_URL, headers=headers, timeout=10)
+        
+        response = requests.get(PREMIUM_BANDAI_URL, headers=headers, timeout=15)
         response.encoding = 'utf-8'
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
         productos = []
         
-        # Buscar items en la página
-        items = soup.find_all('div', class_='item')
+        # Buscar todos los links de productos (están en <a> tags dentro de listas)
+        # Premium Bandai estructura: link -> images, name, price, status
         
-        for item in items:
+        # Secciones de productos: "New Arrivals", "In-Stock", "Closing Soon"
+        producto_links = soup.find_all('a', href=lambda x: x and '/us/item/N' in str(x))
+        
+        for link in producto_links:
             try:
-                nombre = item.find('a', class_='item-name')
-                precio = item.find('span', class_='price')
-                estado = item.find('span', class_='status')
+                # Extraer nombre del producto
+                nombre_elem = link.find('generic')  # Primer <generic> contiene el nombre
+                if not nombre_elem:
+                    continue
                 
-                if nombre:
-                    es_preventa = False
-                    if estado and 'preventa' in estado.text.lower():
-                        es_preventa = True
-                    
-                    producto = {
-                        'nombre': nombre.text.strip(),
-                        'url': nombre.get('href', ''),
-                        'precio': precio.text.strip() if precio else 'N/A',
-                        'estado': estado.text.strip() if estado else 'Disponible',
-                        'es_preventa': es_preventa,
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    
-                    productos.append(producto)
+                nombre = nombre_elem.get_text(strip=True)
+                if not nombre:
+                    continue
+                
+                # Extraer precio
+                precio = "N/A"
+                precio_elems = link.find_all('generic')
+                for elem in precio_elems:
+                    texto = elem.get_text(strip=True)
+                    if texto and any(char.isdigit() for char in texto) and '.' in texto:
+                        precio = texto
+                        break
+                
+                # Extraer estado (OUT OF STOCK, PRE-ORDER, etc)
+                estado = "Available"
+                status_elem = link.find('listitem')
+                if status_elem:
+                    estado = status_elem.get_text(strip=True)
+                
+                # Detectar si es preventa
+                es_preventa = 'PRE-ORDER' in estado.upper() or 'WAITING' in estado.upper()
+                
+                url = link.get('href', '')
+                if url and not url.startswith('http'):
+                    url = 'https://p-bandai.com' + url
+                
+                producto = {
+                    'nombre': nombre,
+                    'url': url,
+                    'precio': precio,
+                    'estado': estado,
+                    'es_preventa': es_preventa,
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                productos.append(producto)
+                
             except Exception as e:
-                print(f"Error procesando item: {e}")
+                print(f"Error procesando producto: {e}")
                 continue
         
         return productos
@@ -93,9 +120,11 @@ def detectar_cambios(productos_nuevos, productos_anteriores):
     nombres_anteriores = {p['nombre'] for p in productos_anteriores}
     
     for producto in productos_nuevos:
+        # Producto completamente nuevo
         if producto['nombre'] not in nombres_anteriores:
             cambios['nuevos'].append(producto)
         
+        # Producto que ahora está en preventa
         if producto['es_preventa']:
             previo = next((p for p in productos_anteriores 
                           if p['nombre'] == producto['nombre']), None)
@@ -119,7 +148,7 @@ def formatear_alerta(cambios):
     if not cambios['nuevos'] and not cambios['preventas_nuevas']:
         return None
     
-    mensaje = "🎴 <b>ALERTA ONE PIECE TCG - Premium Bandai</b>\n\n"
+    mensaje = "🎴 <b>ALERTA ONE PIECE TCG - Premium Bandai USA</b>\n\n"
     
     if cambios['nuevos']:
         mensaje += "🆕 <b>NUEVOS PRODUCTOS:</b>\n"
@@ -127,17 +156,19 @@ def formatear_alerta(cambios):
             mensaje += f"• <b>{p['nombre']}</b>\n"
             mensaje += f"  💰 {p['precio']}\n"
             if p['url']:
-                mensaje += f"  🔗 <a href=\"{p['url']}\">Ver</a>\n"
+                mensaje += f"  🔗 <a href=\"{p['url']}\">Ver producto</a>\n"
+            mensaje += "\n"
     
     if cambios['preventas_nuevas']:
-        mensaje += "\n⏰ <b>NUEVAS PREVENTAS:</b>\n"
+        mensaje += "⏰ <b>NUEVAS PREVENTAS:</b>\n"
         for p in cambios['preventas_nuevas'][:5]:
             mensaje += f"• <b>{p['nombre']}</b>\n"
             mensaje += f"  💰 {p['precio']}\n"
             if p['url']:
-                mensaje += f"  🔗 <a href=\"{p['url']}\">Ver</a>\n"
+                mensaje += f"  🔗 <a href=\"{p['url']}\">Ver producto</a>\n"
+            mensaje += "\n"
     
-    mensaje += f"\n⏰ Última revisión: {datetime.now().strftime('%H:%M:%S')}"
+    mensaje += f"⏰ Última revisión: {datetime.now().strftime('%H:%M:%S %Z')}"
     return mensaje
 
 def ejecutar_ciclo():
@@ -147,6 +178,7 @@ def ejecutar_ciclo():
     productos_nuevos = obtener_productos()
     if not productos_nuevos:
         print("❌ No se pudieron obtener productos")
+        enviar_telegram("⚠️ El bot no pudo extraer productos de Premium Bandai. Verifica la estructura HTML.")
         return
     
     print(f"✅ Se obtuvieron {len(productos_nuevos)} productos")
@@ -171,6 +203,7 @@ def ejecutar_ciclo():
 
 if __name__ == "__main__":
     print("🤖 BOT ONE PIECE TCG INICIADO")
+    print("URL: Premium Bandai USA")
     print(f"Ejecutando cada 30 minutos\n")
     
     while True:
