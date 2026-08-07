@@ -17,28 +17,16 @@ PRODUCTS_FILE = "productos_anteriores.json"
 
 def obtener_productos():
     """
-    Extrae los productos One Piece TCG de Premium Bandai USA usando pyppeteer
+    Extrae los productos One Piece TCG de Premium Bandai USA
     """
-    import asyncio
-    from pyppeteer import launch
-    
-    async def scrape():
-        browser = await launch(headless=True, args=['--no-sandbox'])
-        page = await browser.newPage()
-        await page.goto(PREMIUM_BANDAI_URL, waitUntil='networkidle2')
-        
-        try:
-            await page.waitForSelector('a[href*="/us/item/N"]', timeout=5000)
-        except:
-            print("Timeout esperando productos")
-        
-        html = await page.content()
-        await browser.close()
-        return html
+    import cloudscraper
     
     try:
-        html = asyncio.run(scrape())
-        soup = BeautifulSoup(html, 'html.parser')
+        scraper = cloudscraper.create_scraper()
+        response = scraper.get(PREMIUM_BANDAI_URL, timeout=15)
+        response.encoding = 'utf-8'
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
         
         productos = []
         producto_links = soup.find_all('a', href=lambda x: x and '/us/item/N' in str(x))
@@ -87,7 +75,6 @@ def obtener_productos():
     except Exception as e:
         print(f"Error obteniendo productos: {e}")
         return []
-
 # ====================
 
 def cargar_productos_anteriores():
