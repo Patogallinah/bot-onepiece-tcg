@@ -20,73 +20,72 @@ PRODUCTS_FILE = "productos_anteriores.json"
 # ==================== FUNCIONES ====================
 
 def obtener_productos():
-    """Extrae los productos One Piece TCG de Premium Bandai USA"""
-    import cloudscraper
+    """Extrae productos One Piece TCG con Playwright"""
+    from playwright.async_api import async_playwright
+    import asyncio
+    
+    async def scrape_async():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(args=['--no-sandbox'])
+            page = await browser.new_page()
+            
+            productos = []
+            
+            for url in PREMIUM_BANDAI_URLS:
+                try:
+                    await page.goto(url, wait_until='networkidle')
+                    await page.wait_for_timeout(2000)
+                    
+                    html = await page.content()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    
+                    producto_links = soup.find_all('a', href=lambda x: x and '/item/' in str(x))
+                    print(f"DEBUG: {len(producto_links)} enlaces encontrados")
+                    
+                    for link in producto_links:
+                        try:
+                            url_producto = link.get('href', '')
+                            if url_producto and not url_producto.startswith('http'):
+                                url_producto = 'https://p-bandai.com' + url_producto
+                            
+                            texto = link.get_text(strip=True)
+                            nombre = texto[:100]
+                            
+                            if not nombre or len(nombre) < 5:
+                                continue
+                            if 'CARD GAME' not in nombre.upper() and 'TCG' not in nombre.upper():
+                                continue
+                            
+                            precio = "N/A"
+                            precios = re.findall(r'[\d,]+\.\d{2}', texto)
+                            if precios:
+                                precio = precios[0]
+                            
+                            es_preventa = 'PRE-ORDER' in texto.upper() or 'WAITING' in texto.upper()
+                            
+                            producto = {
+                                'nombre': nombre[:80],
+                                'url': url_producto,
+                                'precio': precio,
+                                'estado': 'PRE-ORDER' if es_preventa else 'Available',
+                                'es_preventa': es_preventa,
+                                'timestamp': datetime.now().isoformat()
+                            }
+                            
+                            if not any(p['nombre'] == producto['nombre'] for p in productos):
+                                productos.append(producto)
+                        except:
+                            continue
+                except Exception as e:
+                    print(f"Error en {url}: {e}")
+            
+            await browser.close()
+            return productos
     
     try:
-        scraper = cloudscraper.create_scraper()
-        productos = []
-        
-        for url in PREMIUM_BANDAI_URLS:
-            try:
-                response = scraper.get(url, timeout=15)
-                response.encoding = 'utf-8'
-                soup = BeautifulSoup(response.content, 'html.parser')
-                
-                producto_links = soup.find_all('a', href=lambda x: x and '/item/' in str(x))
-                print(f"DEBUG: Encontrados {len(producto_links)} enlaces en {url.split('?')[0]}")
-                
-                for link in producto_links:
-                    try:
-                        url_producto = link.get('href', '')
-                        if url_producto and not url_producto.startswith('http'):
-                            url_producto = 'https://p-bandai.com' + url_producto
-                        
-                        texto_completo = link.get_text(strip=True)
-                        nombre = texto_completo[:100] if texto_completo else "Sin nombre"
-                        
-                        if not nombre or len(nombre) < 5:
-                            continue
-                        if 'CARD GAME' not in nombre.upper() and 'TCG' not in nombre.upper():
-                            continue
-                        
-                        precio = "N/A"
-                        precios = re.findall(r'[\d,]+\.\d{2}', texto_completo)
-                        if precios:
-                            precio = precios[0]
-                        
-                        estado = "Available"
-                        es_preventa = False
-                        if 'PRE-ORDER' in texto_completo.upper() or 'WAITING' in texto_completo.upper():
-                            estado = "PRE-ORDER"
-                            es_preventa = True
-                        elif 'OUT OF STOCK' in texto_completo.upper():
-                            estado = "OUT OF STOCK"
-                        
-                        producto = {
-                            'nombre': nombre[:80],
-                            'url': url_producto,
-                            'precio': precio,
-                            'estado': estado,
-                            'es_preventa': es_preventa,
-                            'timestamp': datetime.now().isoformat()
-                        }
-                        
-                        if not any(p['nombre'] == producto['nombre'] for p in productos):
-                            productos.append(producto)
-                        
-                    except Exception as e:
-                        continue
-            
-            except Exception as e:
-                print(f"Error en URL: {e}")
-                continue
-        
-        print(f"✅ Total productos: {len(productos)}")
-        return productos
-    
+        return asyncio.run(scrape_async())
     except Exception as e:
-        print(f"Error obteniendo productos: {e}")
+        print(f"Error scraping: {e}")
         return []
 
 def cargar_productos_anteriores():
