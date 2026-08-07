@@ -4,6 +4,8 @@ import json
 import time
 from datetime import datetime
 import os
+import re
+
 # ==================== CONFIGURACIÓN ====================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -19,7 +21,7 @@ def obtener_productos():
     """
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
         response = requests.get(PREMIUM_BANDAI_URL, headers=headers, timeout=15)
@@ -29,47 +31,41 @@ def obtener_productos():
         
         productos = []
         
-        # Buscar todos los links de productos (están en <a> tags dentro de listas)
-        # Premium Bandai estructura: link -> images, name, price, status
-        
-        # Secciones de productos: "New Arrivals", "In-Stock", "Closing Soon"
+        # Buscar links de productos por patrón de URL
         producto_links = soup.find_all('a', href=lambda x: x and '/us/item/N' in str(x))
+        
+        print(f"DEBUG: Encontrados {len(producto_links)} enlaces de productos")
         
         for link in producto_links:
             try:
-                # Extraer nombre del producto
-                nombre_elem = link.find('generic')  # Primer <generic> contiene el nombre
-                if not nombre_elem:
-                    continue
-                
-                nombre = nombre_elem.get_text(strip=True)
-                if not nombre:
-                    continue
-                
-                # Extraer precio
-                precio = "N/A"
-                precio_elems = link.find_all('generic')
-                for elem in precio_elems:
-                    texto = elem.get_text(strip=True)
-                    if texto and any(char.isdigit() for char in texto) and '.' in texto:
-                        precio = texto
-                        break
-                
-                # Extraer estado (OUT OF STOCK, PRE-ORDER, etc)
-                estado = "Available"
-                status_elem = link.find('listitem')
-                if status_elem:
-                    estado = status_elem.get_text(strip=True)
-                
-                # Detectar si es preventa
-                es_preventa = 'PRE-ORDER' in estado.upper() or 'WAITING' in estado.upper()
-                
+                # Extraer URL
                 url = link.get('href', '')
                 if url and not url.startswith('http'):
                     url = 'https://p-bandai.com' + url
                 
+                # Buscar nombre y precio dentro del link
+                texto_completo = link.get_text(strip=True)
+                
+                # Buscar el nombre (está antes del precio)
+                nombre = texto_completo[:100] if texto_completo else "Sin nombre"
+                
+                # Buscar precio (números con punto)
+                precio = "N/A"
+                precios = re.findall(r'[\d,]+\.\d{2}', texto_completo)
+                if precios:
+                    precio = precios[0]
+                
+                # Detectar estado
+                estado = "Available"
+                es_preventa = False
+                if 'PRE-ORDER' in texto_completo.upper():
+                    estado = "PRE-ORDER"
+                    es_preventa = True
+                elif 'OUT OF STOCK' in texto_completo.upper():
+                    estado = "OUT OF STOCK"
+                
                 producto = {
-                    'nombre': nombre,
+                    'nombre': nombre[:80],
                     'url': url,
                     'precio': precio,
                     'estado': estado,
@@ -117,11 +113,9 @@ def detectar_cambios(productos_nuevos, productos_anteriores):
     nombres_anteriores = {p['nombre'] for p in productos_anteriores}
     
     for producto in productos_nuevos:
-        # Producto completamente nuevo
         if producto['nombre'] not in nombres_anteriores:
             cambios['nuevos'].append(producto)
         
-        # Producto que ahora está en preventa
         if producto['es_preventa']:
             previo = next((p for p in productos_anteriores 
                           if p['nombre'] == producto['nombre']), None)
@@ -131,11 +125,11 @@ def detectar_cambios(productos_nuevos, productos_anteriores):
     return cambios
 
 def enviar_telegram(mensaje):
-    """Envía mensaje a Telegram usando requests (sin async)"""
+    """Envía mensaje a Telegram usando requests"""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         data = {
-            'chat_id': CHAT_ID,
+            'chat_id': int(CHAT_ID),
             'text': mensaje,
             'parse_mode': 'HTML'
         }
@@ -164,7 +158,7 @@ def formatear_alerta(cambios):
             mensaje += f"• <b>{p['nombre']}</b>\n"
             mensaje += f"  💰 {p['precio']}\n"
             if p['url']:
-                mensaje += f"  🔗 <a href=\"{p['url']}\">Ver producto</a>\n"
+                mensaje += f"  🔗 <a href=\"{p['url']}\">Ver</a>\n"
             mensaje += "\n"
     
     if cambios['preventas_nuevas']:
@@ -173,10 +167,10 @@ def formatear_alerta(cambios):
             mensaje += f"• <b>{p['nombre']}</b>\n"
             mensaje += f"  💰 {p['precio']}\n"
             if p['url']:
-                mensaje += f"  🔗 <a href=\"{p['url']}\">Ver producto</a>\n"
+                mensaje += f"  🔗 <a href=\"{p['url']}\">Ver</a>\n"
             mensaje += "\n"
     
-    mensaje += f"⏰ Última revisión: {datetime.now().strftime('%H:%M:%S %Z')}"
+    mensaje += f"⏰ Última revisión: {datetime.now().strftime('%H:%M:%S')}"
     return mensaje
 
 def ejecutar_ciclo():
@@ -186,7 +180,6 @@ def ejecutar_ciclo():
     productos_nuevos = obtener_productos()
     if not productos_nuevos:
         print("❌ No se pudieron obtener productos")
-        enviar_telegram("⚠️ El bot no pudo extraer productos de Premium Bandai. Verifica la estructura HTML.")
         return
     
     print(f"✅ Se obtuvieron {len(productos_nuevos)} productos")
@@ -198,10 +191,7 @@ def ejecutar_ciclo():
         mensaje = formatear_alerta(cambios)
         if mensaje:
             print(f"📬 Enviando alertas...")
-            if enviar_telegram(mensaje):
-                print("✅ Alerta enviada a Telegram")
-            else:
-                print("❌ Error enviando alerta")
+            enviar_telegram(mensaje)
     else:
         print("ℹ️ Sin cambios detectados")
     
