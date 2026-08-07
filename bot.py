@@ -17,36 +17,18 @@ PRODUCTS_FILE = "productos_anteriores.json"
 
 def obtener_productos():
     """
-    Extrae los productos One Piece TCG de Premium Bandai USA usando Selenium
+    Extrae los productos One Piece TCG de Premium Bandai USA con requests-html
     """
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.options import Options
+    from requests_html import HTMLSession
     
     try:
-        # Configurar Chrome sin interfaz gráfica
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        session = HTMLSession()
+        response = session.get(PREMIUM_BANDAI_URL, timeout=15)
         
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.get(PREMIUM_BANDAI_URL)
+        # Renderizar JavaScript
+        response.html.render(timeout=10, sleep=2)
         
-        # Esperar a que carguen los productos
-        try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.TAG_NAME, "a[href*='/us/item/N']"))
-            )
-        except:
-            print("Timeout esperando productos, continuando...")
-        
-        # Parsear el HTML ya cargado
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        driver.quit()
+        soup = BeautifulSoup(response.html.html, 'html.parser')
         
         productos = []
         
@@ -95,7 +77,7 @@ def obtener_productos():
         return productos
     
     except Exception as e:
-        print(f"Error obteniendo productos con Selenium: {e}")
+        print(f"Error obteniendo productos: {e}")
         return []
 
 def cargar_productos_anteriores():
