@@ -17,45 +17,58 @@ PRODUCTS_FILE = "productos_anteriores.json"
 
 def obtener_productos():
     """
-    Extrae los productos One Piece TCG de Premium Bandai USA
+    Extrae los productos One Piece TCG de Premium Bandai USA usando Selenium
     """
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.chrome.options import Options
+    
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        # Configurar Chrome sin interfaz gráfica
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         
-        response = requests.get(PREMIUM_BANDAI_URL, headers=headers, timeout=15)
-        response.encoding = 'utf-8'
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.get(PREMIUM_BANDAI_URL)
         
-        soup = BeautifulSoup(response.content, 'html.parser')
+        # Esperar a que carguen los productos
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.TAG_NAME, "a[href*='/us/item/N']"))
+            )
+        except:
+            print("Timeout esperando productos, continuando...")
+        
+        # Parsear el HTML ya cargado
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        driver.quit()
         
         productos = []
         
-        # Buscar links de productos por patrón de URL
+        # Buscar links de productos
         producto_links = soup.find_all('a', href=lambda x: x and '/us/item/N' in str(x))
         
         print(f"DEBUG: Encontrados {len(producto_links)} enlaces de productos")
         
         for link in producto_links:
             try:
-                # Extraer URL
                 url = link.get('href', '')
                 if url and not url.startswith('http'):
                     url = 'https://p-bandai.com' + url
                 
-                # Buscar nombre y precio dentro del link
                 texto_completo = link.get_text(strip=True)
-                
-                # Buscar el nombre (está antes del precio)
                 nombre = texto_completo[:100] if texto_completo else "Sin nombre"
                 
-                # Buscar precio (números con punto)
                 precio = "N/A"
                 precios = re.findall(r'[\d,]+\.\d{2}', texto_completo)
                 if precios:
                     precio = precios[0]
                 
-                # Detectar estado
                 estado = "Available"
                 es_preventa = False
                 if 'PRE-ORDER' in texto_completo.upper():
@@ -82,7 +95,7 @@ def obtener_productos():
         return productos
     
     except Exception as e:
-        print(f"Error obteniendo productos: {e}")
+        print(f"Error obteniendo productos con Selenium: {e}")
         return []
 
 def cargar_productos_anteriores():
