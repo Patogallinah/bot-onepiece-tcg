@@ -4,9 +4,6 @@ import json
 import time
 from datetime import datetime
 import os
-from telegram import Bot
-from telegram.error import TelegramError
-
 # ==================== CONFIGURACIÓN ====================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -134,12 +131,23 @@ def detectar_cambios(productos_nuevos, productos_anteriores):
     return cambios
 
 def enviar_telegram(mensaje):
-    """Envía mensaje a Telegram"""
+    """Envía mensaje a Telegram usando requests (sin async)"""
     try:
-        bot = Bot(token=TELEGRAM_TOKEN)
-        bot.send_message(chat_id=CHAT_ID, text=mensaje, parse_mode='HTML')
-        return True
-    except TelegramError as e:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = {
+            'chat_id': CHAT_ID,
+            'text': mensaje,
+            'parse_mode': 'HTML'
+        }
+        response = requests.post(url, data=data, timeout=10)
+        
+        if response.status_code == 200:
+            print("✅ Mensaje enviado a Telegram")
+            return True
+        else:
+            print(f"❌ Error Telegram: {response.text}")
+            return False
+    except Exception as e:
         print(f"Error enviando Telegram: {e}")
         return False
 
