@@ -87,6 +87,9 @@ def obtener_productos():
     except Exception as e:
         print(f"Error obteniendo productos: {e}")
         return []
+
+# ====================
+
 def cargar_productos_anteriores():
     """Carga productos del monitoreo anterior"""
     if os.path.exists(PRODUCTS_FILE):
