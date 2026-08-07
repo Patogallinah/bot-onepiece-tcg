@@ -181,7 +181,9 @@ def ejecutar_ciclo():
 if __name__ == "__main__":
     print("🤖 BOT ONE PIECE TCG INICIADO")
     print("Ejecutando cada 30 minutos\n")
-    
+    # Test de Telegram
+print("🧪 Enviando mensaje de prueba...")
+enviar_telegram("🤖 ¡BOT FUNCIONANDO! Premium Bandai One Piece TCG Monitor Activo")
     while True:
         try:
             ejecutar_ciclo()
