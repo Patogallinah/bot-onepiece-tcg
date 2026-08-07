@@ -50,8 +50,12 @@ def obtener_productos():
                         texto_completo = link.get_text(strip=True)
                         nombre = texto_completo[:100] if texto_completo else "Sin nombre"
                         
-                        if not nombre or len(nombre) < 5:
-                            continue
+                        # Filtrar SOLO productos que contengan "CARD GAME" o "TCG"
+if not nombre or len(nombre) < 5:
+    continue
+if 'CARD GAME' not in nombre.upper() and 'TCG' not in nombre.upper():
+    print(f"Ignorando: {nombre}")
+    continue
                         
                         precio = "N/A"
                         precios = re.findall(r'[\d,]+\.\d{2}', texto_completo)
