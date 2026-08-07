@@ -9,8 +9,10 @@ import re
 # ==================== CONFIGURACIÓN ====================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-PREMIUM_BANDAI_URL = "https://p-bandai.com/us/brand/onepiececardgame"
-
+PREMIUM_BANDAI_URLS = [
+    "https://p-bandai.com/us/brand/onepiececardgame",
+    "https://p-bandai.com/us/series/onepiece-series?_f_series=03-002&offset=0&limit=20&sortType=NewArrival&_f_productStatuses=Waiting,On"
+]
 PRODUCTS_FILE = "productos_anteriores.json"
 
 # ==================== FUNCIONES ====================
@@ -23,53 +25,69 @@ def obtener_productos():
     
     try:
         scraper = cloudscraper.create_scraper()
-        response = scraper.get(PREMIUM_BANDAI_URL, timeout=15)
-        response.encoding = 'utf-8'
-        
-        soup = BeautifulSoup(response.content, 'html.parser')
         
         productos = []
-        producto_links = soup.find_all('a', href=lambda x: x and '/us/item/N' in str(x))
         
-        print(f"DEBUG: Encontrados {len(producto_links)} enlaces de productos")
-        
-        for link in producto_links:
+        # Recorrer ambas URLs
+        for url in PREMIUM_BANDAI_URLS:
             try:
-                url = link.get('href', '')
-                if url and not url.startswith('http'):
-                    url = 'https://p-bandai.com' + url
+                response = scraper.get(url, timeout=15)
+                response.encoding = 'utf-8'
                 
-                texto_completo = link.get_text(strip=True)
-                nombre = texto_completo[:100] if texto_completo else "Sin nombre"
+                soup = BeautifulSoup(response.content, 'html.parser')
                 
-                precio = "N/A"
-                precios = re.findall(r'[\d,]+\.\d{2}', texto_completo)
-                if precios:
-                    precio = precios[0]
+                # Buscar todos los links de productos
+                producto_links = soup.find_all('a', href=lambda x: x and '/item/' in str(x))
                 
-                estado = "Available"
-                es_preventa = False
-                if 'PRE-ORDER' in texto_completo.upper():
-                    estado = "PRE-ORDER"
-                    es_preventa = True
-                elif 'OUT OF STOCK' in texto_completo.upper():
-                    estado = "OUT OF STOCK"
+                print(f"DEBUG: Encontrados {len(producto_links)} enlaces de productos en {url}")
                 
-                producto = {
-                    'nombre': nombre[:80],
-                    'url': url,
-                    'precio': precio,
-                    'estado': estado,
-                    'es_preventa': es_preventa,
-                    'timestamp': datetime.now().isoformat()
-                }
-                
-                productos.append(producto)
-                
+                for link in producto_links:
+                    try:
+                        url_producto = link.get('href', '')
+                        if url_producto and not url_producto.startswith('http'):
+                            url_producto = 'https://p-bandai.com' + url_producto
+                        
+                        texto_completo = link.get_text(strip=True)
+                        nombre = texto_completo[:100] if texto_completo else "Sin nombre"
+                        
+                        if not nombre or len(nombre) < 5:
+                            continue
+                        
+                        precio = "N/A"
+                        precios = re.findall(r'[\d,]+\.\d{2}', texto_completo)
+                        if precios:
+                            precio = precios[0]
+                        
+                        estado = "Available"
+                        es_preventa = False
+                        if 'PRE-ORDER' in texto_completo.upper() or 'WAITING' in texto_completo.upper():
+                            estado = "PRE-ORDER"
+                            es_preventa = True
+                        elif 'OUT OF STOCK' in texto_completo.upper():
+                            estado = "OUT OF STOCK"
+                        
+                        producto = {
+                            'nombre': nombre[:80],
+                            'url': url_producto,
+                            'precio': precio,
+                            'estado': estado,
+                            'es_preventa': es_preventa,
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        
+                        # Evitar duplicados
+                        if not any(p['nombre'] == producto['nombre'] for p in productos):
+                            productos.append(producto)
+                        
+                    except Exception as e:
+                        print(f"Error procesando producto: {e}")
+                        continue
+            
             except Exception as e:
-                print(f"Error procesando producto: {e}")
+                print(f"Error en URL {url}: {e}")
                 continue
         
+        print(f"✅ Total de productos únicos encontrados: {len(productos)}")
         return productos
     
     except Exception as e:
