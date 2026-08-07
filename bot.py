@@ -17,22 +17,30 @@ PRODUCTS_FILE = "productos_anteriores.json"
 
 def obtener_productos():
     """
-    Extrae los productos One Piece TCG de Premium Bandai USA con requests-html
+    Extrae los productos One Piece TCG de Premium Bandai USA usando pyppeteer
     """
-    from requests_html import HTMLSession
+    import asyncio
+    from pyppeteer import launch
+    
+    async def scrape():
+        browser = await launch(headless=True, args=['--no-sandbox'])
+        page = await browser.newPage()
+        await page.goto(PREMIUM_BANDAI_URL, waitUntil='networkidle2')
+        
+        try:
+            await page.waitForSelector('a[href*="/us/item/N"]', timeout=5000)
+        except:
+            print("Timeout esperando productos")
+        
+        html = await page.content()
+        await browser.close()
+        return html
     
     try:
-        session = HTMLSession()
-        response = session.get(PREMIUM_BANDAI_URL, timeout=15)
-        
-        # Renderizar JavaScript
-        response.html.render(timeout=10, sleep=2)
-        
-        soup = BeautifulSoup(response.html.html, 'html.parser')
+        html = asyncio.run(scrape())
+        soup = BeautifulSoup(html, 'html.parser')
         
         productos = []
-        
-        # Buscar links de productos
         producto_links = soup.find_all('a', href=lambda x: x and '/us/item/N' in str(x))
         
         print(f"DEBUG: Encontrados {len(producto_links)} enlaces de productos")
@@ -79,7 +87,6 @@ def obtener_productos():
     except Exception as e:
         print(f"Error obteniendo productos: {e}")
         return []
-
 def cargar_productos_anteriores():
     """Carga productos del monitoreo anterior"""
     if os.path.exists(PRODUCTS_FILE):
@@ -90,6 +97,8 @@ def cargar_productos_anteriores():
             return []
     return []
 
+# ====================
+
 def guardar_productos(productos):
     """Guarda productos para próxima comparación"""
     try:
@@ -97,6 +106,8 @@ def guardar_productos(productos):
             json.dump(productos, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"Error guardando productos: {e}")
+
+# ====================
 
 def detectar_cambios(productos_nuevos, productos_anteriores):
     """Detecta nuevos productos y preventas"""
@@ -118,6 +129,8 @@ def detectar_cambios(productos_nuevos, productos_anteriores):
                 cambios['preventas_nuevas'].append(producto)
     
     return cambios
+    
+# ====================
 
 def enviar_telegram(mensaje):
     """Envía mensaje a Telegram usando requests"""
@@ -139,6 +152,8 @@ def enviar_telegram(mensaje):
     except Exception as e:
         print(f"Error enviando Telegram: {e}")
         return False
+
+# ====================
 
 def formatear_alerta(cambios):
     """Crea mensaje para Telegram"""
@@ -167,6 +182,8 @@ def formatear_alerta(cambios):
     
     mensaje += f"⏰ Última revisión: {datetime.now().strftime('%H:%M:%S')}"
     return mensaje
+
+# ====================
 
 def ejecutar_ciclo():
     """Ejecuta UN ciclo de monitoreo"""
