@@ -51,11 +51,11 @@ def obtener_productos():
                         nombre = texto_completo[:100] if texto_completo else "Sin nombre"
                         
                         # Filtrar SOLO productos que contengan "CARD GAME" o "TCG"
-if not nombre or len(nombre) < 5:
-    continue
-if 'CARD GAME' not in nombre.upper() and 'TCG' not in nombre.upper():
-    print(f"Ignorando: {nombre}")
-    continue
+                        if not nombre or len(nombre) < 5:
+                            continue
+                        if 'CARD GAME' not in nombre.upper() and 'TCG' not in nombre.upper():
+                            print(f"Ignorando: {nombre}")
+                            continue
                         
                         precio = "N/A"
                         precios = re.findall(r'[\d,]+\.\d{2}', texto_completo)
@@ -89,14 +89,6 @@ if 'CARD GAME' not in nombre.upper() and 'TCG' not in nombre.upper():
             
             except Exception as e:
                 print(f"Error en URL {url}: {e}")
-                continue
-        
-        print(f"✅ Total de productos únicos encontrados: {len(productos)}")
-        return productos
-    
-    except Exception as e:
-        print(f"Error obteniendo productos: {e}")
-        return []
 # ====================
 
 def cargar_productos_anteriores():
